@@ -7,6 +7,8 @@ const cors = require('cors');
 const app = express();
 app.use(cors({ origin: ['https://papaya-muffin-55a8b5.netlify.app'], credentials: false }));
 app.use(express.json());
+const PORT = process.env.PORT || 3000;
+
 
 const pool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
@@ -93,5 +95,6 @@ app.get('/leaderboard', async (req, res) => {
   }
 });
 
-const port = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(Listening on ${PORT}));
+
+app.listen(PORT, () => console.log(`Listening on ${PORT}`));
+
