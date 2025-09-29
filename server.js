@@ -94,4 +94,4 @@ app.get('/leaderboard', async (req, res) => {
 });
 
 const port = process.env.PORT || 3000;
-app.listen(port, () => console.log(`Server running on http://localhost:${port}`));
+app.listen(port, () => console.log(`https://victors-descent-backend.onrender.com`));
