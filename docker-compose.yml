@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  db:
+    image: mysql:8
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: dungeon_game
+      MYSQL_USER: dungeon
+      MYSQL_PASSWORD: DungeonGame123!
+    ports:
+      - "3306:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  backend:
+    build: .
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      DB_HOST=db
+      DB_USER=dungeon
+      DB_PASS=DungeonGame123!
+      DB_NAME=dungeon_game
+      PORT=3000
+    depends_on:
+      - db
+
+volumes:
+  db_data:
