@@ -3,6 +3,7 @@
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
+const mysql = require('mysql2/promise');
 
 const app = express();
 
@@ -15,71 +16,141 @@ credentials: false
 })
 );
 
-// Health check
+// Health
 app.get('/health', (req, res) => {
 res.json({ ok: true });
 });
 
-// In-memory data store for demo
-// Replace with a database if you need persistence.
-const leaderboard = [];
+// MySQL pool from env
+// Provide these env vars in Render: DB_HOST, DB_USER, DB_PASS, DB_NAME
+const pool = mysql.createPool({
+host: process.env.DB_HOST,
+user: process.env.DB_USER,
+password: process.env.DB_PASS,
+database: process.env.DB_NAME,
+waitForConnections: true,
+connectionLimit: 10,
+queueLimit: 0
+});
 
-// POST /register
-// Body: { username: string }
-app.post('/register', (req, res) => {
+// Ensure tables exist (optional bootstrap)
+async function ensureSchema() {
+const conn = await pool.getConnection();
 try {
+await conn.query( CREATE TABLE IF NOT EXISTS users ( id INT AUTO_INCREMENT PRIMARY KEY, username VARCHAR(64) UNIQUE NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ) );
+await conn.query( CREATE TABLE IF NOT EXISTS leaderboard ( id INT AUTO_INCREMENT PRIMARY KEY, username VARCHAR(64) NOT NULL, score INT NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP ) );
+await conn.query( CREATE INDEX IF NOT EXISTS idx_leaderboard_username ON leaderboard (username) );
+} finally {
+conn.release();
+}
+}
+
+// POST /register { username }
+app.post('/register', async (req, res) => {
 const { username } = req.body || {};
 if (!username || typeof username !== 'string') {
-return res.status(400).json({ error: 'Username is required' });
+return res.status(400).json({ error: 'username required' });
 }
-const userId = user_${Date.now()}_${Math.floor(Math.random() * 1e6)};
-return res.json({ userId, username });
+
+let conn;
+try {
+conn = await pool.getConnection();
+
+
+// Check existing
+const [rows] = await conn.query(
+  'SELECT id FROM users WHERE username = ? LIMIT 1',
+  [username]
+);
+
+if (rows.length) {
+  return res.json({ id: rows.id, username });
+}
+
+// Create new
+const [result] = await conn.query(
+  'INSERT INTO users (username) VALUES (?)',
+  [username]
+);
+
+return res.json({ id: result.insertId, username });
 } catch (err) {
 console.error('Register error:', err);
-return res.status(500).json({ error: 'Server error' });
+return res.status(500).json({ error: 'server error' });
+} finally {
+if (conn) conn.release();
 }
 });
 
-// POST /update-leaderboard
-// Body: { username: string, score: number }
-app.post('/update-leaderboard', (req, res) => {
-try {
+// POST /update-leaderboard { username, score }
+app.post('/update-leaderboard', async (req, res) => {
 const { username, score } = req.body || {};
 if (!username || typeof username !== 'string') {
-return res.status(400).json({ error: 'Username is required' });
+return res.status(400).json({ error: 'username required' });
 }
 const numericScore = Number(score);
 if (!Number.isFinite(numericScore)) {
-return res.status(400).json({ error: 'Valid score is required' });
+return res.status(400).json({ error: 'valid score required' });
 }
 
-const existing = leaderboard.find((e) => e.username === username);
-if (existing) {
-  existing.score = Math.max(existing.score, numericScore);
+let conn;
+try {
+conn = await pool.getConnection();
+
+
+// Upsert by keeping the max score per username
+const [existing] = await conn.query(
+  'SELECT id, score FROM leaderboard WHERE username = ? LIMIT 1',
+  [username]
+);
+
+if (existing.length) {
+  const best = Math.max(existing.score, numericScore);
+  await conn.query(
+    'UPDATE leaderboard SET score = ? WHERE id = ?',
+    [best, existing.id]
+  );
 } else {
-  leaderboard.push({ username, score: numericScore });
+  await conn.query(
+    'INSERT INTO leaderboard (username, score) VALUES (?, ?)',
+    [username, numericScore]
+  );
 }
-
-leaderboard.sort((a, b) => b.score - a.score);
-if (leaderboard.length > 100) leaderboard.length = 100;
 
 return res.json({ ok: true });
 } catch (err) {
 console.error('Update leaderboard error:', err);
-return res.status(500).json({ error: 'Server error' });
+return res.status(500).json({ error: 'server error' });
+} finally {
+if (conn) conn.release();
 }
 });
 
 // GET /leaderboard
-app.get('/leaderboard', (req, res) => {
+app.get('/leaderboard', async (req, res) => {
+let conn;
 try {
-return res.json({ leaderboard });
+conn = await pool.getConnection();
+const [rows] = await conn.query(
+'SELECT username, score FROM leaderboard ORDER BY score DESC, updated_at ASC LIMIT 100'
+);
+return res.json({ leaderboard: rows });
 } catch (err) {
 console.error('Get leaderboard error:', err);
-return res.status(500).json({ error: 'Server error' });
+return res.status(500).json({ error: 'server error' });
+} finally {
+if (conn) conn.release();
 }
 });
 
-// Start server
+// Start
 const PORT = process.env.PORT || 3000;
+ensureSchema()
+.then(() => {
 app.listen(PORT, () => console.log(Listening on ${PORT}));
+})
+.catch((err) => {
+console.error('Schema init failed:', err);
+// Still start the server so /health can indicate liveness
+app.listen(PORT, () => console.log(Listening on ${PORT} (schema init failed)));
+});
