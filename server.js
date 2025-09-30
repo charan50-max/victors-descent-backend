@@ -41,7 +41,7 @@ async function ensureSchema() {
         id INT AUTO_INCREMENT PRIMARY KEY,
         username VARCHAR(64) UNIQUE NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
+      );
     `);
 
     await conn.query(`
@@ -50,13 +50,13 @@ async function ensureSchema() {
         username VARCHAR(64) NOT NULL,
         score INT NOT NULL,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      )
+      );
     `);
 
     await conn.query(`
       CREATE INDEX IF NOT EXISTS idx_leaderboard_username 
       ON leaderboard (username)
-    `);
+   ); `);
   } finally {
     conn.release();
   }
