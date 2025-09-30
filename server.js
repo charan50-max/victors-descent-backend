@@ -1,100 +1,85 @@
-// server.js
-require('dotenv').config();
+'use strict';
+
 const express = require('express');
-const mysql = require('mysql2/promise');
 const cors = require('cors');
+require('dotenv').config();
 
 const app = express();
-app.use(cors({ origin: ['https://papaya-muffin-55a8b5.netlify.app'], credentials: false }));
+
+// Middleware
 app.use(express.json());
+app.use(
+cors({
+origin: ['https://papaya-muffin-55a8b5.netlify.app'],
+credentials: false
+})
+);
+
+// Health check
+app.get('/health', (req, res) => {
+res.json({ ok: true });
+});
+
+// In-memory data store for demo
+// Replace with a database if you need persistence.
+const leaderboard = [];
+
+// POST /register
+// Body: { username: string }
+app.post('/register', (req, res) => {
+try {
+const { username } = req.body || {};
+if (!username || typeof username !== 'string') {
+return res.status(400).json({ error: 'Username is required' });
+}
+const userId = user_${Date.now()}_${Math.floor(Math.random() * 1e6)};
+return res.json({ userId, username });
+} catch (err) {
+console.error('Register error:', err);
+return res.status(500).json({ error: 'Server error' });
+}
+});
+
+// POST /update-leaderboard
+// Body: { username: string, score: number }
+app.post('/update-leaderboard', (req, res) => {
+try {
+const { username, score } = req.body || {};
+if (!username || typeof username !== 'string') {
+return res.status(400).json({ error: 'Username is required' });
+}
+const numericScore = Number(score);
+if (!Number.isFinite(numericScore)) {
+return res.status(400).json({ error: 'Valid score is required' });
+}
+
+const existing = leaderboard.find((e) => e.username === username);
+if (existing) {
+  existing.score = Math.max(existing.score, numericScore);
+} else {
+  leaderboard.push({ username, score: numericScore });
+}
+
+leaderboard.sort((a, b) => b.score - a.score);
+if (leaderboard.length > 100) leaderboard.length = 100;
+
+return res.json({ ok: true });
+} catch (err) {
+console.error('Update leaderboard error:', err);
+return res.status(500).json({ error: 'Server error' });
+}
+});
+
+// GET /leaderboard
+app.get('/leaderboard', (req, res) => {
+try {
+return res.json({ leaderboard });
+} catch (err) {
+console.error('Get leaderboard error:', err);
+return res.status(500).json({ error: 'Server error' });
+}
+});
+
+// Start server
 const PORT = process.env.PORT || 3000;
-
-
-const pool = mysql.createPool({
-  host: process.env.DB_HOST || 'localhost',
-  user: process.env.DB_USER || 'dungeon',
-  password: process.env.DB_PASS || '',
-  database: process.env.DB_NAME || 'dungeon_game',
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
-});
-
-// Register new user (or return existing)
-app.post('/register', async (req, res) => {
-  try {
-    const { username } = req.body;
-    if (!username) return res.status(400).json({ error: 'username required' });
-
-    const conn = await pool.getConnection();
-    const [rows] = await conn.query('SELECT id FROM users WHERE username = ?', [username]);
-    if (rows.length) {
-      conn.release();
-      return res.json({ id: rows[0].id, username });
-    }
-    const [result] = await conn.query('INSERT INTO users (username) VALUES (?)', [username]);
-    conn.release();
-    res.json({ id: result.insertId, username });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Log game events
-app.post('/log', async (req, res) => {
-  try {
-    const { user_id, event_type, message } = req.body;
-    await pool.query(
-      'INSERT INTO logs (user_id, event_type, message) VALUES (?,?,?)',
-      [user_id || null, event_type || 'info', message || '']
-    );
-    res.json({ success: true });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Update leaderboard
-app.post('/update-leaderboard', async (req, res) => {
-  try {
-    const { user_id, victory = 0, defeat = 0, explored = 0 } = req.body;
-    if (!user_id) return res.status(400).json({ error: 'user_id required' });
-
-    await pool.query(
-      `INSERT INTO leaderboard (user_id, victories, defeats, explored_rooms)
-       VALUES (?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         victories = victories + VALUES(victories),
-         defeats = defeats + VALUES(defeats),
-         explored_rooms = explored_rooms + VALUES(explored_rooms)`,
-      [user_id, victory, defeat, explored]
-    );
-    res.json({ success: true });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Get leaderboard
-app.get('/leaderboard', async (req, res) => {
-  try {
-    const [rows] = await pool.query(
-      `SELECT u.username, l.victories, l.defeats, l.explored_rooms
-       FROM leaderboard l
-       JOIN users u ON u.id = l.user_id
-       ORDER BY l.victories DESC, l.explored_rooms DESC
-       LIMIT 20`
-    );
-    res.json(rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-
-app.listen(PORT, () => console.log(`Listening on ${PORT}`));
-
+app.listen(PORT, () => console.log(Listening on ${PORT}));
