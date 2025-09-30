@@ -21,7 +21,7 @@ app.get('/health', (req, res) => {
   res.json({ ok: true });
 });
 
-// MySQL pool from env
+// MySQL pool from env, with keep-alive
 const pool = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
@@ -30,6 +30,8 @@ const pool = mysql.createPool({
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
+  enableKeepAlive: true,
+  keepAliveInitialDelay: 0
 });
 
 // Ensure tables exist
@@ -56,7 +58,7 @@ async function ensureSchema() {
       await conn.query(`CREATE INDEX idx_leaderboard_username ON leaderboard (username);`);
     } catch (err) {
       // Ignore error if index already exists
-      if (err.code !== 'ER_DUP_KEYNAME') {
+      if (err.code !== 'ER_DUP_KEYNAME' && !/Duplicate key name/.test(err.message)) {
         throw err;
       }
     }
