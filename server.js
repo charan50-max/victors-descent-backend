@@ -16,7 +16,7 @@ app.use(
   })
 );
 
-// Health
+// Health check
 app.get('/health', (req, res) => {
   res.json({ ok: true });
 });
@@ -43,7 +43,6 @@ async function ensureSchema() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
-
     await conn.query(`
       CREATE TABLE IF NOT EXISTS leaderboard (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -52,11 +51,15 @@ async function ensureSchema() {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       );
     `);
-
-    await conn.query(`
-      CREATE INDEX IF NOT EXISTS idx_leaderboard_username 
-      ON leaderboard (username)
-   ); `);
+    // Create index (no IF NOT EXISTS in MySQL/MariaDB)
+    try {
+      await conn.query(`CREATE INDEX idx_leaderboard_username ON leaderboard (username);`);
+    } catch (err) {
+      // Ignore error if index already exists
+      if (err.code !== 'ER_DUP_KEYNAME') {
+        throw err;
+      }
+    }
   } finally {
     conn.release();
   }
@@ -68,27 +71,22 @@ app.post('/register', async (req, res) => {
   if (!username || typeof username !== 'string') {
     return res.status(400).json({ error: 'username required' });
   }
-
   let conn;
   try {
     conn = await pool.getConnection();
-
     // Check existing
     const [rows] = await conn.query(
       'SELECT id FROM users WHERE username = ? LIMIT 1',
       [username]
     );
-
     if (rows.length) {
       return res.json({ id: rows[0].id, username });
     }
-
     // Create new
     const [result] = await conn.query(
       'INSERT INTO users (username) VALUES (?)',
       [username]
     );
-
     return res.json({ id: result.insertId, username });
   } catch (err) {
     console.error('Register error:', err);
@@ -108,17 +106,14 @@ app.post('/update-leaderboard', async (req, res) => {
   if (!Number.isFinite(numericScore)) {
     return res.status(400).json({ error: 'valid score required' });
   }
-
   let conn;
   try {
     conn = await pool.getConnection();
-
     // Upsert by keeping the max score per username
     const [existing] = await conn.query(
       'SELECT id, score FROM leaderboard WHERE username = ? LIMIT 1',
       [username]
     );
-
     if (existing.length) {
       const best = Math.max(existing[0].score, numericScore);
       await conn.query(
@@ -131,7 +126,6 @@ app.post('/update-leaderboard', async (req, res) => {
         [username, numericScore]
       );
     }
-
     return res.json({ ok: true });
   } catch (err) {
     console.error('Update leaderboard error:', err);
@@ -158,7 +152,7 @@ app.get('/leaderboard', async (req, res) => {
   }
 });
 
-// Start
+// Start server
 const PORT = process.env.PORT || 3000;
 ensureSchema()
   .then(() => {
